@@ -1,0 +1,6 @@
+arch.txt
+build/
+docs/
+.vscode/
+Doxyfile
+.clang*
