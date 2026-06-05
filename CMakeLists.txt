@@ -35,6 +35,22 @@ target_link_libraries(StreamProcessor INTERFACE
     Filter
 )
 
+add_library(netFilterLogger INTERFACE)
+
+target_link_libraries(
+    netFilterLogger
+    INTERFACE
+        IPv4Address
+        Filter
+        StreamProcessor
+)
+
+target_include_directories(
+    netFilterLogger
+    INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 add_executable(Main
     ${SRC_DIR}/main.cc
 )
