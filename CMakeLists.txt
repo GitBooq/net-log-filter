@@ -10,6 +10,18 @@ set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS ON CACHE BOOL "Suppress developer warnings
 set(INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
+option(
+    NETLOGFILTER_BUILD_TESTS
+    "Build tests"
+    ON
+)
+
+option(
+    NETLOGFILTER_BUILD_EXAMPLES
+    "Build examples"
+    ON
+)
+
 set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
 option(ENABLE_SANITIZERS "Enable sanitizers" OFF)
 
@@ -51,14 +63,14 @@ target_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-add_executable(Main
-    ${SRC_DIR}/main.cc
-)
-target_link_libraries(Main PRIVATE 
-    IPv4Address
-    Filter
-    StreamProcessor
-)
+if (NETLOGFILTER_BUILD_EXAMPLES)
+    add_executable(Main
+        ${SRC_DIR}/main.cc
+    )
+    target_link_libraries(Main PRIVATE 
+        netFilterLogger
+    )
+endif()
 
 if (ENABLE_SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -g -fno-omit-frame-pointer)
@@ -70,18 +82,20 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test.log)
                    ${CMAKE_CURRENT_BINARY_DIR}/test.log COPYONLY)
 endif()
 
-# GoogleTest
-include(FetchContent)
-FetchContent_Declare(
-    googletest
-    GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG v1.17.0
-    GIT_SHALLOW TRUE
-    GIT_PROGRESS TRUE
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+if (NETLOGFILTER_BUILD_TESTS)
+    # GoogleTest
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.17.0
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
 
-enable_testing()
-add_subdirectory(tests)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
