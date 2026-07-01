@@ -64,10 +64,10 @@ target_include_directories(
 )
 
 if (NETLOGFILTER_BUILD_EXAMPLES)
-    add_executable(Main
+    add_executable(main
         ${SRC_DIR}/main.cc
     )
-    target_link_libraries(Main PRIVATE 
+    target_link_libraries(main PRIVATE 
         netFilterLogger
     )
 endif()

@@ -9,8 +9,18 @@ using namespace net::details;
 
 constexpr auto kNpos = std::string_view::npos;
 
-std::string MakeLogLine(const std::string &ip, const std::string &message) {
+std::string MakeLogLine(const std::string& ip, const std::string& message) {
   return ip + " - " + message;
+}
+
+inline auto MakeOstreamCallbackForAcceptedLogs(std::ostream& out) {
+  return [&out](std::span<const net::logger::LogEntry> batch) {
+    for (const auto& entry : batch) {
+      if (entry.reason == net::logger::RejectReason::None) {
+        out << entry.raw_line << '\n';
+      }
+    }
+  };
 }
 
 TEST(StreamProcessorTest, EmptyInput) {
@@ -20,7 +30,7 @@ TEST(StreamProcessorTest, EmptyInput) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   EXPECT_TRUE(output.str().empty());
 }
@@ -34,7 +44,7 @@ TEST(StreamProcessorTest, SingleLineMatch) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   EXPECT_EQ(output.str(), "192.168.1.1 - GET /index.html\n");
 }
@@ -48,7 +58,7 @@ TEST(StreamProcessorTest, SingleLineNoMatch) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   EXPECT_TRUE(output.str().empty());
 }
@@ -66,7 +76,7 @@ TEST(StreamProcessorTest, MultipleLinesMixed) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("192.168.1.1 - GET /page1"), kNpos);
@@ -89,7 +99,7 @@ TEST(StreamProcessorTest, BatchOutputExact) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor(kBatchSize);
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto view = output.view();
   int lines = std::count(view.begin(), view.end(), '\n');
@@ -111,7 +121,7 @@ TEST(StreamProcessorTest, BatchOutputPartial) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor(kBatchSize);
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto view = output.view();
   int lines = std::count(view.begin(), view.end(), '\n');
@@ -132,7 +142,7 @@ TEST(StreamProcessorTest, BatchOutputMultipleBatches) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor(kBatchSize);
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto view = output.view();
   int lines = std::count(view.begin(), view.end(), '\n');
@@ -152,7 +162,7 @@ TEST(StreamProcessorTest, WithRangeFilter) {
   auto filter = RangeFilter::Create("10.0.0.1", "10.0.0.100").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("10.0.0.1 - LOWER_BOUND"), kNpos);
@@ -179,7 +189,7 @@ TEST(StreamProcessorTest, WithCompositeFilter) {
   composite.Add(std::move(range));
 
   StreamProcessor processor;
-  processor.Process(input, output, composite);
+  processor.Process(input, composite, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("192.168.1.15 - MATCH"), kNpos);
@@ -202,7 +212,7 @@ TEST(StreamProcessorTest, InvalidIpLinesIgnored) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("192.168.1.1 - VALID"), kNpos);
@@ -223,7 +233,7 @@ TEST(StreamProcessorTest, EdgeCaseZeroIP) {
   auto filter = RangeFilter::Create("0.0.0.0", "255.255.255.255").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("0.0.0.0 - DEFAULT_ROUTE"), kNpos);
@@ -240,7 +250,7 @@ TEST(StreamProcessorTest, EdgeCaseNetworkAndBroadcast) {
   auto filter = SubnetFilter::Create("192.168.0.0/24").value();
   StreamProcessor processor;
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto result = output.view();
   EXPECT_NE(result.find("192.168.0.0 - NETWORK_ADDR"), kNpos);
@@ -260,7 +270,7 @@ TEST(StreamProcessorTest, LargeInputNoMemoryLeak) {
   auto filter = SubnetFilter::Create("192.168.1.0/24").value();
   StreamProcessor processor(1000);
 
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, MakeOstreamCallbackForAcceptedLogs(output));
 
   auto view = output.view();
   int lines = std::count(view.begin(), view.end(), '\n');
