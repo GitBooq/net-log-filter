@@ -5,17 +5,18 @@
 
 #pragma once
 
-#include <cstddef>          // for size_t
-#include <exception>        // for exception
-#include <initializer_list> // for initializer_list
-#include <iosfwd>           // for istream, ostream
-#include <optional>         // for optional
-#include <string>           // for allocator, operator==, char_traits
-#include <utility>          // for move
-#include <vector>           // for vector
+#include <cstddef>           // for size_t
+#include <exception>         // for exception
+#include <initializer_list>  // for initializer_list
+#include <iosfwd>            // for istream, ostream
+#include <optional>          // for optional
+#include <string>            // for allocator, operator==, char_traits
+#include <utility>           // for move
+#include <vector>            // for vector
 
-#include "details/filter.h" // for CompositeFilter, RangeFilter, Subn...
-#include "details/stream_processor.h" // for StreamProcessor
+#include "details/filter.h"  // for CompositeFilter, RangeFilter, Subn...
+#include "details/stream_processor.h"  // for StreamProcessor
+#include "types.h"
 
 namespace net::logger {
 
@@ -25,12 +26,12 @@ using net::details::StreamProcessor;
 using net::details::SubnetFilter;
 
 class FilterConfigError final : public std::exception {
-public:
+ public:
   explicit FilterConfigError(std::string msg) noexcept : msg_(std::move(msg)) {}
 
-  const char *what() const noexcept override { return msg_.c_str(); }
+  const char* what() const noexcept override { return msg_.c_str(); }
 
-private:
+ private:
   std::string msg_;
 };
 
@@ -39,11 +40,11 @@ private:
  *
  */
 struct FilterConfig {
-  std::string type_;  ///< filter type
-  std::string value_; ///< ipv4addr
+  std::string type_;   ///< filter type
+  std::string value_;  ///< ipv4addr
 
-public:
-  static constexpr size_t kFields = 4; ///< number of fields in config line
+ public:
+  static constexpr size_t kFields = 4;  ///< number of fields in config line
 
   /**
    * @brief Construct a new Filter Config object from init list of strings.
@@ -55,7 +56,7 @@ public:
     if (il.size() != kFields) {
       throw FilterConfigError("FilterConfig expects 4 fields");
     }
-    const std::string *arr = il.begin();
+    const std::string* arr = il.begin();
     auto [key1, val1, key2, val2] = std::tuple{arr[0], arr[1], arr[2], arr[3]};
 
     if (key1 != "type" || key2 != "value") {
@@ -86,19 +87,19 @@ public:
  * @note Supported filter types: subnet, range.
  * @return CompositeFilter
  */
-inline CompositeFilter CreateFilter(const std::vector<FilterConfig> &configs) {
+inline CompositeFilter CreateFilter(const std::vector<FilterConfig>& configs) {
   CompositeFilter filter;
 
-  for (const auto &cfg : configs) {
+  for (const auto& cfg : configs) {
     if (cfg.type_ == "subnet") {
       if (auto subnet = SubnetFilter::Create(cfg.value_)) {
-        filter.Add(std::move(*subnet)); // can throw
+        filter.Add(std::move(*subnet));  // can throw
       } else {
         throw FilterConfigError("Bad subnet filter format.");
       }
     } else if (cfg.type_ == "range") {
       if (auto range = RangeFilter::Create(cfg.value_)) {
-        filter.Add(std::move(*range)); // can throw
+        filter.Add(std::move(*range));  // can throw
       } else {
         throw FilterConfigError("Bad range filter format.");
       }
@@ -117,10 +118,11 @@ inline CompositeFilter CreateFilter(const std::vector<FilterConfig> &configs) {
  * @param output
  * @param filter
  */
-inline void ProcessStream(std::istream &input, std::ostream &output,
-                          const CompositeFilter &filter) {
+template <typename Callback>
+inline void ProcessStream(std::istream& input, const CompositeFilter& filter,
+                          Callback&& callback) {
   StreamProcessor processor;
-  processor.Process(input, output, filter);
+  processor.Process(input, filter, std::forward<Callback>(callback));
 }
 
-} // namespace net::logger
+}  // namespace net::logger

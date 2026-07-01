@@ -4,18 +4,20 @@
  */
 #pragma once
 
-#include <algorithm>   // for copy
-#include <cstddef>     // for size_t
-#include <istream>     // for ostream, istream
-#include <iterator>    // for ostream_iterator
-#include <optional>    // for optional
-#include <ranges>      // for transform_view
-#include <string>      // for string
-#include <string_view> // for string_view
-#include <vector>      // for vector
+#include <algorithm>  // for copy
+#include <cstddef>    // for size_t
+#include <istream>
+#include <iterator>  // for ostream_iterator
+#include <optional>
+#include <ranges>  // for transform_view
+#include <string>
+#include <string_view>
+#include <vector>
+#include <span>
 
-#include "filter.h"        // for FilterType
-#include "ip_v4_address.h" // for IPv4Address
+#include "filter.h"  // for FilterType
+#include "ip_v4_address.h"
+#include "net_logger/types.h"
 
 namespace net::details {
 
@@ -24,7 +26,7 @@ namespace net::details {
  * Batch filtering.
  */
 class StreamProcessor {
-public:
+ public:
   /**
    * @brief Construct a new Stream Processor object.
    * Reserves batch_size bytes in output buffer.
@@ -36,47 +38,34 @@ public:
     buffer_.reserve(batch_size);
   }
 
-  /**
-   * @brief Parse, filter, output.
-   * Output when buffer is full, or input ends
-   * @tparam T filter type
-   * @param input input stream (logs)
-   * @param output output stream (result)
-   * @param filter filter to apply to input stream
-   */
-  template <FilterType T>
-  void Process(std::istream &input, std::ostream &output, const T &filter);
+  template <FilterType T, typename Callback>
+  void Process(std::istream& input, const T& filter, Callback&& callback);
 
-private:
-  /**
-   * @brief Input file line structure
-   *
-   */
-  struct LogEntry {
-    IPv4Address ip;
-    std::string line;
-    size_t line_number;
+ private:
+  struct ParseResult {
+    std::optional<IPv4Address> ip;
+    logger::RejectReason reason;
   };
 
   /**
    * @brief Parse IPAddr from string "IP - message"
    *
    * @param line string to parse
-   * @return std::optional<IPv4Address>
+   * @return ParseResult
    */
-  std::optional<IPv4Address> ParseIPFromLine(const std::string &line) const;
+  ParseResult ParseIPFromLine(const std::string& line) const;
 
   /**
-   * @brief Output buffer and clear
+   * @brief Apply callback to buffer and clear
    *
-   * @param output output stream
    */
-  void FlushBuffer(std::ostream &output);
+  template <typename Callback>
+  void FlushBuffer(Callback&& callback);
 
   static constexpr size_t DEFAULT_BATCH_SIZE = 1000U;
 
-  std::vector<LogEntry> buffer_; ///< buffer for output
-  size_t batch_size_;            ///< max buffer size
+  std::vector<logger::LogEntry> buffer_;  ///< buffer for output
+  size_t batch_size_;                     ///< max buffer size
 };
 
 /////////////////////////////////////////////
@@ -85,52 +74,64 @@ private:
 //
 /////////////////////////////////////////////
 
-template <FilterType T>
-void StreamProcessor::Process(std::istream &input, std::ostream &output,
-                              const T &filter) {
+template <FilterType T, typename Callback>
+inline void StreamProcessor::Process(std::istream& input, const T& filter,
+                                     Callback&& callback) {
   std::string line;
   size_t line_number = 0;
 
   while (std::getline(input, line)) {
     ++line_number;
 
-    auto ip = ParseIPFromLine(line);
+    logger::LogEntry entry;
+    entry.raw_line = line;
+    entry.line_number = line_number;
 
-    if (ip && filter.Matches(*ip)) {
-      buffer_.push_back({*ip, line, line_number});
+    auto parse_result = ParseIPFromLine(line);
+
+    entry.parsed_ip = std::move(parse_result.ip);
+    entry.reason = parse_result.reason;
+
+    if (entry.reason == logger::RejectReason::None) {
+      if (!filter.Matches(*entry.parsed_ip)) {
+        entry.reason = logger::RejectReason::FilterRejected;
+      }
     }
 
+    buffer_.push_back(std::move(entry));
+
     if (buffer_.size() >= batch_size_) {
-      FlushBuffer(output);
+      FlushBuffer(callback);
     }
   }
 
   if (!buffer_.empty()) {
-    FlushBuffer(output);
+    FlushBuffer(callback);
   }
 }
 
-inline std::optional<IPv4Address>
-StreamProcessor::ParseIPFromLine(const std::string &line) const {
+inline auto StreamProcessor::ParseIPFromLine(const std::string& line) const
+    -> ParseResult {
+  using logger::RejectReason;
   size_t end = line.find(' ');
   if (end == std::string::npos) {
-    return std::nullopt;
+    return {std::nullopt, RejectReason::InvalidFormat};
   }
 
   std::string_view ip_str(line.data(), end);
-  return IPv4Address::FromString(ip_str);
-}
+  auto parsed = IPv4Address::FromString(ip_str);
 
-// Output buffer to ostream and clear
-inline void StreamProcessor::FlushBuffer(std::ostream &output) {
-  if (buffer_.empty()) {
-    return;
+  if (!parsed) {
+    return {std::nullopt, RejectReason::InvalidIPAddress};
   }
 
-  std::ranges::copy(buffer_ | std::views::transform(&LogEntry::line),
-                    std::ostream_iterator<std::string>(output, "\n"));
+  return {std::move(parsed), RejectReason::None};
+}
+
+template <typename Callback>
+inline void StreamProcessor::FlushBuffer(Callback&& callback) {
+  callback(std::span<const logger::LogEntry>(buffer_));
 
   buffer_.clear();
-  output.flush();
 }
-} // namespace net::details
+}  // namespace net::details
